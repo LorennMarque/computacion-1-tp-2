@@ -1,6 +1,6 @@
 # Monitor de CPU con Redis
 
-Prueba en clase para practicar **Redis**. Se pidió un tablero de monitoreo en tiempo real de CPU con una ventana de **1 minuto** (los datos en Redis expiran a los 60 segundos).
+Prueba en clase para practicar **Redis**. Se pidió un tablero de monitoreo en tiempo real de CPU con una ventana de **1 minuto**.
 
 <p align="center">
   <img src="loading.gif" alt="Demo de tablero de CPU">
@@ -13,6 +13,17 @@ Prueba en clase para practicar **Redis**. Se pidió un tablero de monitoreo en t
 - **Alerta**: si el CPU supera un umbral, el tablero entra en modo alerta. El umbral por defecto es **50%** (`ALERT_THRESHOLD` en `app/stats.py`). El colector **publica** cambios en el canal Redis `cpu:alert` y el tablero se **suscribe** vía SSE (`/api/alert/subscribe`).
 
 Usamos Pub/Sub para que el tablero reciba el aviso solo cuando cambia el estado de alerta, sin consultar Redis en un loop esperando un valor distinto.
+
+## Histórico
+
+El gráfico de la última ventana (1 minuto) se alimenta desde la lista Redis `stats:history`:
+
+- **`LPUSH`**: cada muestra del colector se agrega al inicio de la lista.
+- **`LTRIM`**: se recorta la lista para conservar solo las últimas ~1200 entradas (60 s ÷ intervalo de muestreo en `app/stats.py`).
+- **`EXPIRE`**: en cada registro se definen 60 segundos hasta la expiración. Si el colector deja de correr, la lista desaparece y no queda histórico acumulado.
+- **`LRANGE`**: la API `/api/cpu/history` lee la lista y devuelve los puntos en orden cronológico.
+
+El valor actual sigue en la clave `stats:current` (`SET`).
 
 ## Arquitectura
 

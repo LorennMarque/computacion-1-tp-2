@@ -8,10 +8,13 @@ REDIS_HOST = "localhost"
 REDIS_PORT = 6379
 REDIS_DB = 0
 CURRENT_KEY = "stats:current"
+HISTORY_KEY = "stats:history"
+HISTORY_WINDOW_SEC = 60
 ALERT_CHANNEL = "cpu:alert"
 ALERT_THRESHOLD = 50.0
 REFRESH_INTERVAL_SEC = 0.05
 COLLECT_INTERVAL_SEC = REFRESH_INTERVAL_SEC
+HISTORY_MAX_LEN = max(1, int(HISTORY_WINDOW_SEC / COLLECT_INTERVAL_SEC))
 
 
 def redis_client():
@@ -51,7 +54,9 @@ def publish_alert_if_changed(r, stats):
 
 def save_stats(r, stats):
     payload = json.dumps(stats)
-    r.set(f"stats:{stats['datetime']}", payload, ex=60)
+    r.lpush(HISTORY_KEY, payload)
+    r.ltrim(HISTORY_KEY, 0, HISTORY_MAX_LEN - 1)
+    r.expire(HISTORY_KEY, HISTORY_WINDOW_SEC)
     r.set(CURRENT_KEY, payload)
     publish_alert_if_changed(r, stats)
 
@@ -63,19 +68,9 @@ def load_current_stats(r):
     return json.loads(raw)
 
 
-def _redis_key(key):
-    return key.decode() if isinstance(key, bytes) else key
-
-
 def load_stats_history(r):
-    keys = r.keys("stats:*")
     points = []
-    for key in keys:
-        if _redis_key(key) == CURRENT_KEY:
-            continue
-        raw = r.get(key)
-        if raw is None:
-            continue
+    for raw in reversed(r.lrange(HISTORY_KEY, 0, -1)):
         stats = json.loads(raw)
         points.append(
             {
@@ -83,5 +78,4 @@ def load_stats_history(r):
                 "cpu_percent_total": float(stats["cpu_percent_total"]),
             }
         )
-    points.sort(key=lambda p: p["datetime"])
     return points
