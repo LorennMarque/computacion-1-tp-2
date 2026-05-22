@@ -28,6 +28,9 @@ Demostración del estado de alerta. Para exigir el CPU se ocuparon al 100% 15 co
   <img src="alert-mode.gif" alt="Superación del umbral de alerta">
 </p>
 
+## Video demos
+En la carpeta `01_VIDEO-DEMOS` hay grabaciones de pantalla mostrando el funcionamiento del colector y del tablero en tiempo real.
+
 ## Requisitos
 
 - Python 3
