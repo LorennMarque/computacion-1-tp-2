@@ -1,0 +1,1088 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>STARK · CPU Diagnostics</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.iife.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.paths.min.js"></script>
+  <style>
+    :root {
+      --bg-deep: #030810;
+      --bg-panel: rgba(4, 18, 38, 0.82);
+      --cyan: #00e5ff;
+      --cyan-bright: #7df9ff;
+      --cyan-dim: rgba(0, 229, 255, 0.15);
+      --cyan-glow: 0 0 20px rgba(0, 229, 255, 0.45), 0 0 40px rgba(0, 229, 255, 0.15);
+      --border: rgba(0, 229, 255, 0.35);
+      --text: #e8faff;
+      --text-dim: rgba(125, 249, 255, 0.55);
+      --danger: #ff4466;
+      --accent: var(--cyan);
+      --accent-bright: var(--cyan-bright);
+      --accent-dim: var(--cyan-dim);
+      --accent-glow: var(--cyan-glow);
+      --hud-chart-h: 300px;
+      --hud-panel-h: 348px;
+      --hud-core-size: 118px;
+    }
+
+    body.alert-critical {
+      --cyan: #ff2244;
+      --cyan-bright: #ff6b7a;
+      --cyan-dim: rgba(255, 40, 68, 0.22);
+      --cyan-glow: 0 0 24px rgba(255, 34, 68, 0.65), 0 0 60px rgba(255, 0, 30, 0.35);
+      --border: rgba(255, 68, 90, 0.5);
+      --text: #ffe8ec;
+      --text-dim: rgba(255, 160, 170, 0.6);
+      --bg-deep: #120308;
+      --bg-panel: rgba(38, 6, 14, 0.88);
+      --accent: #ff2244;
+      --accent-bright: #ff6b7a;
+      --accent-dim: rgba(255, 40, 68, 0.22);
+      --accent-glow: var(--cyan-glow);
+    }
+
+    body.alert-critical::before {
+      background:
+        radial-gradient(ellipse 80% 50% at 50% 0%, rgba(180, 0, 40, 0.2), transparent),
+        radial-gradient(ellipse 60% 40% at 80% 100%, rgba(255, 40, 60, 0.12), transparent),
+        repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255, 40, 60, 0.03) 2px, rgba(255, 40, 60, 0.03) 4px);
+    }
+
+    .alert-vignette {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 9999;
+      opacity: 0;
+      transition: opacity 0.25s ease;
+      box-shadow:
+        inset 0 0 80px 30px rgba(255, 20, 50, 0),
+        inset 0 0 160px 60px rgba(255, 0, 0, 0);
+    }
+
+    body.alert-critical .alert-vignette {
+      animation: vignette-blink 0.85s ease-in-out infinite;
+    }
+
+    @keyframes vignette-blink {
+      0%, 100% {
+        opacity: 0.4;
+        box-shadow:
+          inset 0 0 90px 40px rgba(255, 30, 55, 0.45),
+          inset 0 0 180px 70px rgba(255, 0, 20, 0.18);
+      }
+      50% {
+        opacity: 1;
+        box-shadow:
+          inset 0 0 130px 65px rgba(255, 50, 70, 0.9),
+          inset 0 0 260px 100px rgba(255, 0, 30, 0.5);
+      }
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: "Rajdhani", system-ui, sans-serif;
+      min-height: 100vh;
+      background: var(--bg-deep);
+      color: var(--text);
+      overflow-x: hidden;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 80% 50% at 50% 0%, rgba(0, 100, 180, 0.12), transparent),
+        radial-gradient(ellipse 60% 40% at 80% 100%, rgba(0, 229, 255, 0.06), transparent),
+        repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0, 229, 255, 0.02) 2px, rgba(0, 229, 255, 0.02) 4px);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .hud {
+      position: relative;
+      z-index: 1;
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 1.25rem 1.5rem 2.5rem;
+    }
+
+    /* Ruler */
+    .ruler {
+      display: flex;
+      justify-content: space-between;
+      padding: 0.35rem 0 1rem;
+      border-bottom: 1px solid var(--cyan-dim);
+      margin-bottom: 1.25rem;
+      font-family: "Orbitron", monospace;
+      font-size: 0.6rem;
+      letter-spacing: 0.15em;
+      color: var(--text-dim);
+    }
+    .ruler span { opacity: 0.4; }
+    .ruler span:nth-child(5n) { opacity: 1; color: var(--accent); }
+
+    /* Header */
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      flex-wrap: wrap;
+      gap: 1rem;
+      margin-bottom: 1.75rem;
+    }
+    .header__brand {
+      font-family: "Orbitron", sans-serif;
+      font-weight: 700;
+      font-size: 1.1rem;
+      letter-spacing: 0.35em;
+      color: var(--accent);
+      text-shadow: none;
+      transition: color 0.3s, text-shadow 0.5s ease;
+    }
+    .header.hud-glow-active .header__brand {
+      text-shadow: var(--accent-glow);
+    }
+    .header__brand small {
+      display: block;
+      font-size: 0.55rem;
+      letter-spacing: 0.5em;
+      color: var(--text-dim);
+      margin-top: 0.25rem;
+      font-weight: 500;
+    }
+    .header__meta {
+      text-align: right;
+      font-family: "Orbitron", monospace;
+      font-size: 0.7rem;
+      color: var(--text-dim);
+      letter-spacing: 0.1em;
+    }
+    .header__meta strong {
+      display: block;
+      font-size: 1.5rem;
+      color: var(--accent-bright);
+      text-shadow: none;
+      margin-top: 0.15rem;
+      transition: color 0.3s, text-shadow 0.5s ease;
+    }
+    .header.hud-glow-active .header__meta strong {
+      text-shadow: var(--accent-glow);
+    }
+
+    /* Panel with HUD brackets */
+    .panel {
+      position: relative;
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      padding: 1.25rem 1rem 1rem;
+      backdrop-filter: blur(8px);
+      box-shadow: inset 0 0 30px rgba(0, 229, 255, 0.03);
+      transition: border-color 0.3s, box-shadow 0.5s ease;
+    }
+    .panel.hud-glow-active {
+      animation: panel-glow-in 0.55s ease forwards;
+    }
+    body.alert-critical .panel.hud-glow-active {
+      animation: panel-glow-in-alert 0.55s ease forwards;
+    }
+    @keyframes panel-glow-in {
+      from { box-shadow: inset 0 0 30px rgba(0, 229, 255, 0.03), 0 0 0 transparent; }
+      to { box-shadow: inset 0 0 30px rgba(0, 229, 255, 0.03), var(--accent-glow); }
+    }
+    @keyframes panel-glow-in-alert {
+      from { box-shadow: inset 0 0 40px rgba(255, 40, 60, 0.08), 0 0 0 transparent; }
+      to { box-shadow: inset 0 0 40px rgba(255, 40, 60, 0.08), var(--accent-glow); }
+    }
+    .panel::before,
+    .panel::after {
+      content: "";
+      position: absolute;
+      width: 12px;
+      height: 12px;
+      border-color: var(--accent);
+      transition: border-color 0.3s;
+      border-style: solid;
+      opacity: 0.8;
+    }
+    .panel::before {
+      top: -1px; left: -1px;
+      border-width: 2px 0 0 2px;
+    }
+    .panel::after {
+      bottom: -1px; right: -1px;
+      border-width: 0 2px 2px 0;
+    }
+    .panel__title {
+      font-family: "Orbitron", sans-serif;
+      font-size: 0.65rem;
+      letter-spacing: 0.25em;
+      color: var(--accent);
+      text-transform: uppercase;
+      transition: color 0.3s;
+      margin-bottom: 0.75rem;
+      padding-left: 0.25rem;
+    }
+
+    .charts-row {
+      display: flex;
+      gap: 1.25rem;
+      align-items: stretch;
+    }
+    .charts-row .panel--line {
+      flex: 1;
+      min-width: 0;
+      height: var(--hud-panel-h);
+      min-height: var(--hud-panel-h);
+      max-height: var(--hud-panel-h);
+    }
+    .charts-row .panel--ring {
+      flex: 0 0 300px;
+      width: 300px;
+      height: var(--hud-panel-h);
+      min-height: var(--hud-panel-h);
+      max-height: var(--hud-panel-h);
+      position: relative;
+    }
+    #chart-line,
+    #chart-ring {
+      height: var(--hud-chart-h);
+      min-height: var(--hud-chart-h);
+      max-height: var(--hud-chart-h);
+      width: 100%;
+      overflow: hidden;
+    }
+    #chart-line .uplot {
+      font-family: "Orbitron", monospace;
+    }
+    #chart-line .u-legend { display: none; }
+    #chart-ring {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #ring-svg {
+      width: 100%;
+      max-width: 280px;
+      height: auto;
+      display: block;
+    }
+    #ring-track,
+    #ring-progress {
+      fill: none;
+      stroke-linecap: round;
+      transition: stroke 0.3s ease;
+    }
+    #ring-track {
+      stroke-width: 14;
+      opacity: 0.35;
+    }
+    #ring-progress {
+      stroke-width: 14;
+    }
+    .ring-counter {
+      position: absolute;
+      left: 50%;
+      top: 58%;
+      transform: translate(-50%, -50%);
+      font-family: "Orbitron", sans-serif;
+      font-size: 2rem;
+      font-weight: 700;
+      color: var(--accent-bright);
+      text-shadow: none;
+      pointer-events: none;
+      z-index: 2;
+      font-variant-numeric: tabular-nums;
+      transition: color 0.3s, text-shadow 0.5s ease, opacity 0.5s ease;
+    }
+    .panel--ring.hud-glow-active .ring-counter {
+      text-shadow: var(--accent-glow);
+    }
+    .chart-intro {
+      opacity: 0;
+      transition: opacity 0.55s ease;
+    }
+    .chart-intro.is-visible {
+      opacity: 1;
+    }
+
+    @media (max-width: 800px) {
+      .charts-row { flex-direction: column; }
+      .charts-row .panel--ring { flex: none; }
+    }
+
+    /* Cores section */
+    .cores-section { margin-top: 1.75rem; }
+    .cores-section .panel__title { margin-bottom: 1rem; }
+
+    .cores-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      gap: 0.85rem;
+    }
+
+    .core-card {
+      position: relative;
+      width: var(--hud-core-size);
+      height: var(--hud-core-size);
+      min-width: var(--hud-core-size);
+      min-height: var(--hud-core-size);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      clip-path: polygon(12% 0%, 88% 0%, 100% 12%, 100% 88%, 88% 100%, 12% 100%, 0% 88%, 0% 12%);
+      background: rgba(2, 12, 28, 0.9);
+      border: 1px solid var(--border);
+      overflow: hidden;
+      transition: box-shadow 0.2s ease, border-color 0.2s ease;
+      --load: 0;
+    }
+    .core-card::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(
+        circle at 50% 80%,
+        rgba(0, 229, 255, calc(var(--load, 0) * 0.55)) 0%,
+        rgba(0, 100, 180, calc(var(--load, 0) * 0.2)) 45%,
+        transparent 70%
+      );
+      pointer-events: none;
+      animation: core-pulse 2s ease-in-out infinite;
+      transition: background 0.3s;
+    }
+    body.alert-critical .core-card::before {
+      background: radial-gradient(
+        circle at 50% 80%,
+        rgba(255, 50, 70, calc(var(--load, 0) * 0.65)) 0%,
+        rgba(180, 0, 40, calc(var(--load, 0) * 0.3)) 45%,
+        transparent 70%
+      );
+    }
+    .core-card[data-load="high"]::before,
+    body.alert-critical .core-card::before {
+      animation-duration: 0.55s;
+    }
+    @keyframes core-pulse {
+      0%, 100% { opacity: 0.85; }
+      50% { opacity: 1; }
+    }
+    .core-card__ring {
+      position: absolute;
+      inset: 8px;
+      border: 1px solid rgba(0, 229, 255, 0.2);
+      border-radius: 50%;
+      pointer-events: none;
+    }
+    .core-card__ring::after {
+      content: "";
+      position: absolute;
+      inset: -2px;
+      border-radius: 50%;
+      border: 1px solid transparent;
+      border-top-color: var(--accent);
+      transition: border-color 0.3s;
+      opacity: calc(var(--load, 0) * 0.9 + 0.1);
+      transform: rotate(calc(var(--load, 0) * 360deg));
+      transition: opacity 0.15s ease, transform 0.28s ease;
+    }
+    .core-card__label {
+      position: relative;
+      z-index: 1;
+      font-family: "Orbitron", monospace;
+      font-size: 0.55rem;
+      letter-spacing: 0.2em;
+      color: var(--text-dim);
+    }
+    .core-card__value {
+      position: relative;
+      z-index: 1;
+      font-family: "Orbitron", sans-serif;
+      font-size: 1.35rem;
+      font-weight: 600;
+      color: var(--accent-bright);
+      text-shadow: none;
+      transition: color 0.3s, text-shadow 0.45s ease;
+      font-variant-numeric: tabular-nums;
+    }
+    .core-card.hud-glow-active .core-card__value {
+      text-shadow: 0 0 12px rgba(0, 229, 255, 0.6);
+    }
+    body.alert-critical .core-card.hud-glow-active .core-card__value {
+      text-shadow: 0 0 16px rgba(255, 50, 70, 0.8);
+    }
+
+    .status-bar {
+      transition: border-color 0.3s, color 0.3s;
+      margin-top: 1.25rem;
+      padding: 0.6rem 1rem;
+      font-family: "Orbitron", monospace;
+      font-size: 0.7rem;
+      letter-spacing: 0.12em;
+      color: var(--text-dim);
+      border: 1px solid var(--cyan-dim);
+      background: rgba(0, 20, 40, 0.5);
+      text-align: center;
+    }
+    .status-bar.error { color: var(--danger); border-color: rgba(255, 68, 102, 0.4); }
+    #status-load {
+      color: var(--accent);
+      margin-left: 0.35em;
+      font-variant-numeric: tabular-nums;
+      transition: color 0.3s;
+    }
+    body.alert-critical .status-bar {
+      border-color: rgba(255, 68, 90, 0.5);
+      background: rgba(40, 8, 16, 0.6);
+      color: rgba(255, 180, 185, 0.8);
+    }
+
+    /* HUD boot */
+    .hud-boot {
+      position: fixed;
+      inset: 0;
+      z-index: 20000;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1.5rem;
+      background: var(--bg-deep);
+      transition: opacity 0.7s ease, visibility 0.7s;
+    }
+    .hud-boot.is-done {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+    .hud-boot__label {
+      font-family: "Orbitron", sans-serif;
+      font-size: 0.75rem;
+      letter-spacing: 0.45em;
+      color: var(--accent);
+      text-shadow: var(--accent-glow);
+      animation: boot-blink 1.2s ease-in-out infinite;
+    }
+    .hud-boot__bar {
+      width: min(320px, 70vw);
+      height: 2px;
+      background: var(--accent-dim);
+      position: relative;
+      overflow: hidden;
+    }
+    .hud-boot__bar::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+      animation: boot-scan 1.4s ease-in-out infinite;
+    }
+    @keyframes boot-blink {
+      0%, 100% { opacity: 0.5; }
+      50% { opacity: 1; }
+    }
+    @keyframes boot-scan {
+      0% { transform: translateX(-100%); }
+      100% { transform: translateX(100%); }
+    }
+
+    .hud-prepare {
+      opacity: 0 !important;
+      pointer-events: none;
+    }
+    .hud-revealing {
+      position: relative;
+      overflow: hidden;
+      box-shadow: inset 0 0 30px rgba(0, 229, 255, 0.03);
+    }
+    #cores-panel {
+      overflow: hidden;
+    }
+
+    .hud-fade-in {
+      animation: hud-fade-in 0.7s ease forwards;
+    }
+    @keyframes hud-fade-in {
+      from { opacity: 0; transform: translateY(-8px); filter: blur(4px); }
+      to { opacity: 1; transform: translateY(0); filter: blur(0); }
+    }
+
+    .core-card.hud-prepare {
+      opacity: 0 !important;
+    }
+  </style>
+</head>
+<body class="hud-booting">
+  <div class="hud-boot" id="hud-boot">
+    <div class="hud-boot__label">INITIALIZING HUD SYSTEMS</div>
+    <div class="hud-boot__bar"></div>
+  </div>
+  <div class="alert-vignette" aria-hidden="true"></div>
+  <div class="hud">
+    <div class="ruler hud-prepare hud-fade-target" aria-hidden="true">
+      <span>01</span><span>02</span><span>03</span><span>04</span><span>05</span>
+      <span>06</span><span>07</span><span>08</span><span>09</span><span>10</span>
+      <span>11</span><span>12</span><span>13</span><span>14</span><span>15</span>
+    </div>
+
+    <header class="header hud-prepare hud-fade-target">
+      <div class="header__brand">
+        UNIVERSIDAD AUSTRAL
+        <small>CPU DIAGNOSTICS HUD</small>
+      </div>
+      <div class="header__meta">
+        SYS.TIMESTAMP
+        <strong id="datetime">—</strong>
+      </div>
+    </header>
+
+    <div class="charts-row">
+      <div class="panel panel--line hud-prepare hud-reveal-target">
+        <div class="panel__title">◈ Telemetry · CPU Timeline</div>
+        <div id="chart-line"></div>
+      </div>
+      <div class="panel panel--ring hud-prepare hud-reveal-target">
+        <div class="panel__title">◈ Power Core</div>
+        <div id="chart-ring">
+          <svg id="ring-svg" viewBox="0 0 200 200" aria-hidden="true">
+            <circle id="ring-track" cx="100" cy="100" r="70"></circle>
+            <circle id="ring-progress" cx="100" cy="100" r="70"></circle>
+          </svg>
+        </div>
+        <div class="ring-counter" id="ring-counter">0.0%</div>
+      </div>
+    </div>
+
+    <section class="cores-section hud-prepare">
+      <div class="panel hud-prepare hud-reveal-target" id="cores-panel">
+        <div class="panel__title">◈ Processor Array · Per-Core Load</div>
+        <div class="cores-grid" id="cores-grid"></div>
+      </div>
+    </section>
+
+    <p class="status-bar hud-prepare" id="status">
+      <span id="status-label">INITIALIZING UPLINK…</span>
+      <span id="status-load"></span>
+    </p>
+  </div>
+
+  <script>
+    const COLOR_NOMINAL = {
+      main: "#00e5ff",
+      bright: "#7df9ff",
+      dim: "rgba(0, 229, 255, 0.12)",
+      label: "rgba(125, 249, 255, 0.6)",
+      axis: "rgba(125, 249, 255, 0.45)",
+    };
+    const COLOR_ALERT = {
+      main: "#ff2244",
+      bright: "#ff6b7a",
+      dim: "rgba(255, 34, 68, 0.15)",
+      label: "rgba(255, 150, 160, 0.7)",
+      axis: "rgba(255, 140, 150, 0.5)",
+    };
+    const ALERT_THRESHOLD = 70;
+    const CHART_HEIGHT = 300;
+    const REVEAL_SCALE_PANEL = 1.38;
+    const REVEAL_SCALE_CORE = 1.2;
+    const REFRESH_MS = 300;
+    const LINE_WINDOW_MS = 60 * 1000;
+    const SMOOTH_TAU_MS = 320;
+    let linePoints = [];
+    let lineSeeded = false;
+    let alertActive = false;
+    let targetTotal = 0;
+    let targetCores = [];
+    let displayTotal = 0;
+    let displayCores = [];
+    let lastAnimTs = 0;
+    let lastRingUpdate = 0;
+    let hudBootDone = false;
+
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const nextFrame = () =>
+      new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+    function refreshChartLayout() {
+      if (!linePlot) return;
+      const el = document.getElementById("chart-line");
+      if (!el) return;
+      const w = el.clientWidth;
+      if (w > 0) linePlot.setSize({ width: w, height: CHART_HEIGHT });
+    }
+
+    function resizeChartsIn(el) {
+      if (el.querySelector("#chart-line")) refreshChartLayout();
+    }
+
+    function dismissBootOverlay() {
+      document.getElementById("hud-boot").classList.add("is-done");
+      document.body.classList.remove("hud-booting");
+    }
+
+    function finishBoot() {
+      hudBootDone = true;
+      dismissBootOverlay();
+    }
+
+    function hideChartContent(el) {
+      [
+        el.querySelector("#chart-line"),
+        el.querySelector("#chart-ring"),
+        el.querySelector(".ring-counter"),
+      ]
+        .filter(Boolean)
+        .forEach((node) => {
+          node.classList.remove("is-visible");
+          node.classList.add("chart-intro");
+        });
+    }
+
+    function fadeInChartContent(el) {
+      el.querySelectorAll(".chart-intro").forEach((node) => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => node.classList.add("is-visible"));
+        });
+      });
+    }
+
+    function activatePanelGlow(el) {
+      el.classList.add("hud-glow-active");
+    }
+
+    async function revealHudPanel(el, holdMs = 260, startScale = REVEAL_SCALE_PANEL) {
+      if (!el) return;
+      el.classList.remove("hud-prepare");
+      const r = el.getBoundingClientRect();
+      if (r.width < 4 || r.height < 4) {
+        el.style.opacity = "1";
+        activatePanelGlow(el);
+        fadeInChartContent(el);
+        return;
+      }
+
+      const tx = (window.innerWidth / 2 - (r.left + r.width / 2)) * 0.35;
+      const ty = (window.innerHeight / 2 - (r.top + r.height / 2)) * 0.35;
+      const hasChart = el.querySelector("#chart-line, #chart-ring");
+      if (hasChart) hideChartContent(el);
+
+      el.classList.add("hud-revealing");
+      el.style.willChange = "transform, opacity";
+      el.style.transformOrigin = "center center";
+      el.style.zIndex = "8000";
+      el.style.transform = `translate(${tx}px, ${ty}px) scale(${startScale})`;
+      el.style.opacity = "0";
+
+      await nextFrame();
+      el.style.transition = "opacity 0.28s ease";
+      el.style.opacity = "1";
+      await sleep(220 + holdMs);
+
+      el.style.transition = "transform 0.65s cubic-bezier(0.16, 1, 0.3, 1)";
+      el.style.transform = "translate(0, 0) scale(1)";
+      await sleep(680);
+
+      el.style.transition = "";
+      el.style.transform = "";
+      el.style.opacity = "";
+      el.style.zIndex = "";
+      el.style.willChange = "";
+      el.classList.remove("hud-revealing");
+      activatePanelGlow(el);
+      if (hasChart) fadeInChartContent(el);
+      resizeChartsIn(el);
+    }
+
+    function lockCoresPanelHeight() {
+      const panel = document.getElementById("cores-panel");
+      const h = panel.offsetHeight;
+      if (h > 0) {
+        panel.style.height = `${h}px`;
+        panel.style.minHeight = `${h}px`;
+      }
+    }
+
+    async function fadeInTargets() {
+      document.querySelectorAll(".hud-fade-target").forEach((el) => {
+        el.classList.remove("hud-prepare");
+        el.classList.add("hud-fade-in");
+      });
+      await sleep(500);
+      document.querySelector(".header")?.classList.add("hud-glow-active");
+    }
+
+    async function revealCoreCards() {
+      const cards = [...coresGridEl.querySelectorAll(".core-card")];
+      if (!cards.length) return;
+
+      const staggerMs = 16;
+      cards.forEach((card, i) => {
+        card.classList.remove("hud-prepare");
+        card.style.opacity = "0";
+        card.style.transform = "scale(0.88)";
+        card.style.transition = "opacity 0.18s ease, transform 0.22s cubic-bezier(0.16, 1, 0.3, 1)";
+        const delay = i * staggerMs;
+        setTimeout(() => {
+          card.style.opacity = "1";
+          card.style.transform = "scale(1)";
+        }, delay);
+        setTimeout(() => card.classList.add("hud-glow-active"), delay + 200);
+      });
+      await sleep(cards.length * staggerMs + 220);
+    }
+
+    async function waitForCoreCards(maxMs = 4000) {
+      const start = Date.now();
+      while (Date.now() - start < maxMs) {
+        if (coresGridEl.children.length > 0) return true;
+        await sleep(80);
+      }
+      return false;
+    }
+
+    const RING_RADIUS = 70;
+    const RING_ARC_FRAC = 270 / 360;
+    const RING_CIRC = 2 * Math.PI * RING_RADIUS;
+    const RING_ARC_LEN = RING_CIRC * RING_ARC_FRAC;
+
+    let linePlot = null;
+    let chartYMax = 10;
+    let hudColors = COLOR_NOMINAL;
+
+    const ringTrackEl = document.getElementById("ring-track");
+    const ringProgressEl = document.getElementById("ring-progress");
+
+    function ringDash(pct) {
+      const filled = (Math.min(100, Math.max(0, pct)) / 100) * RING_ARC_LEN;
+      return `${filled} ${RING_CIRC}`;
+    }
+
+    function initRingGeometry() {
+      ringTrackEl.setAttribute("stroke-dasharray", `${RING_ARC_LEN} ${RING_CIRC}`);
+      ringTrackEl.setAttribute("stroke-dashoffset", "0");
+      ringTrackEl.setAttribute("transform", "rotate(-135 100 100)");
+      ringProgressEl.setAttribute("stroke-dashoffset", "0");
+      ringProgressEl.setAttribute("transform", "rotate(-135 100 100)");
+    }
+
+    function applyRingColors(c) {
+      ringTrackEl.setAttribute("stroke", c.dim);
+      ringProgressEl.setAttribute("stroke", c.main);
+    }
+
+    function updateRingGauge(pct) {
+      ringProgressEl.setAttribute("stroke-dasharray", ringDash(pct));
+    }
+
+    function linePeakY() {
+      if (!linePoints.length) return 0;
+      return Math.max(...linePoints.map((p) => p.y));
+    }
+
+    function lineYMaxTarget() {
+      const peak = linePeakY();
+      return peak > 0 ? peak * 1.1 : 10;
+    }
+
+    function smoothLineYs(ys) {
+      if (ys.length <= 1) return ys;
+      const out = [ys[0]];
+      const alpha = 0.38;
+      for (let i = 1; i < ys.length; i++) {
+        out.push(alpha * ys[i] + (1 - alpha) * out[i - 1]);
+      }
+      return out;
+    }
+
+    function lineDataFromPoints() {
+      const xs = linePoints.map((p) => p.x / 1000);
+      const ys = smoothLineYs(linePoints.map((p) => p.y));
+      return [xs, ys];
+    }
+
+    function createLinePlot() {
+      const container = document.getElementById("chart-line");
+      const c = hudColors;
+      const width = Math.max(container.clientWidth, 280);
+
+      const opts = {
+        width,
+        height: CHART_HEIGHT,
+        cursor: { show: true, drag: { x: false, y: false } },
+        scales: {
+          x: {
+            time: true,
+            range: (u, _min, max) => {
+              if (max == null) return [0, 60];
+              return [max - LINE_WINDOW_MS / 1000, max];
+            },
+          },
+          y: {
+            range: () => [0, chartYMax],
+          },
+        },
+        axes: [
+          {
+            stroke: c.axis,
+            grid: { show: false },
+            ticks: { show: false },
+            font: "10px Orbitron, monospace",
+          },
+          {
+            stroke: c.axis,
+            grid: { stroke: c.dim, width: 1 },
+            ticks: { show: false },
+            font: "10px Orbitron, monospace",
+            values: (u, vals) => vals.map((v) => v.toFixed(0) + "%"),
+          },
+        ],
+        series: [
+          {},
+          {
+            stroke: c.main,
+            width: 2,
+            fill: c.dim,
+            points: { show: false },
+            paths: uPlot.paths.spline(),
+          },
+        ],
+      };
+
+      linePlot = new uPlot(opts, [[], []], container);
+    }
+
+    function setLinePlotColors(c) {
+      if (!linePlot) return;
+      linePlot.setSeries(1, { stroke: c.main, fill: c.dim });
+      linePlot.axes[0].stroke = c.axis;
+      linePlot.axes[1].stroke = c.axis;
+      linePlot.axes[1].grid.stroke = c.dim;
+      linePlot.redraw();
+    }
+
+    const datetimeEl = document.getElementById("datetime");
+    const statusEl = document.getElementById("status");
+    const statusLabelEl = document.getElementById("status-label");
+    const statusLoadEl = document.getElementById("status-load");
+    const ringCounterEl = document.getElementById("ring-counter");
+    const coresGridEl = document.getElementById("cores-grid");
+
+    function smoothStep(current, target, dtMs) {
+      const alpha = 1 - Math.exp(-dtMs / SMOOTH_TAU_MS);
+      let next = current + (target - current) * alpha;
+      if (Math.abs(target - next) < 0.02) next = target;
+      return next;
+    }
+
+    function ensureCoreCards(count) {
+      if (displayCores.length === count && coresGridEl.children.length === count) return;
+      displayCores = Array(count).fill(0);
+      targetCores = Array(count).fill(0);
+      coresGridEl.innerHTML = Array.from({ length: count }, (_, i) => `
+        <div class="core-card hud-prepare" data-core="${i}" style="--load: 0">
+          <div class="core-card__ring"></div>
+          <div class="core-card__label">CORE ${String(i).padStart(2, "0")}</div>
+          <div class="core-card__value">0.0%</div>
+        </div>
+      `).join("");
+    }
+
+    function updateCoreCard(i, value) {
+      const el = coresGridEl.querySelector(`[data-core="${i}"]`);
+      if (!el) return;
+      const pct = Math.min(100, Math.max(0, value));
+      const load = pct / 100;
+      el.style.setProperty("--load", load);
+      if (pct > ALERT_THRESHOLD) el.setAttribute("data-load", "high");
+      else el.removeAttribute("data-load");
+      el.querySelector(".core-card__value").textContent = pct.toFixed(1) + "%";
+    }
+
+    function tickCounters(ts) {
+      const dt = lastAnimTs ? Math.min(ts - lastAnimTs, 48) : 16;
+      lastAnimTs = ts;
+
+      displayTotal = smoothStep(displayTotal, targetTotal, dt);
+      ringCounterEl.textContent = displayTotal.toFixed(1) + "%";
+      statusLoadEl.textContent = displayTotal.toFixed(1) + "%";
+
+      if (ts - lastRingUpdate >= 40) {
+        lastRingUpdate = ts;
+        updateRingGauge(displayTotal);
+      }
+
+      const n = Math.max(targetCores.length, displayCores.length);
+      for (let i = 0; i < n; i++) {
+        const target = targetCores[i] ?? 0;
+        displayCores[i] = smoothStep(displayCores[i] ?? 0, target, dt);
+        updateCoreCard(i, displayCores[i]);
+      }
+
+      requestAnimationFrame(tickCounters);
+    }
+
+    function applyHudColors(c) {
+      hudColors = c;
+      applyRingColors(c);
+      setLinePlotColors(c);
+    }
+
+    function setAlertMode(cpu) {
+      const on = cpu > ALERT_THRESHOLD;
+      document.body.classList.toggle("alert-critical", on);
+      if (on !== alertActive) {
+        alertActive = on;
+        applyHudColors(on ? COLOR_ALERT : COLOR_NOMINAL);
+      }
+      return on;
+    }
+
+    function formatTime(iso) {
+      const d = new Date(iso);
+      return d.toLocaleTimeString("es-AR", { hour12: false });
+    }
+
+    function formatTimeMs(iso) {
+      return new Date(iso).getTime();
+    }
+
+    function setCounterTargets(cpu, perCore) {
+      targetTotal = cpu;
+      if (perCore?.length) {
+        ensureCoreCards(perCore.length);
+        targetCores = perCore.map((v) => Math.min(100, Math.max(0, v)));
+      }
+    }
+
+    function updateLineChart() {
+      if (!linePlot || !linePoints.length) return;
+      chartYMax = smoothStep(chartYMax, lineYMaxTarget(), REFRESH_MS);
+      linePlot.setData(lineDataFromPoints());
+    }
+
+    function pushLinePoint(datetime, value) {
+      const x = formatTimeMs(datetime);
+      const last = linePoints[linePoints.length - 1];
+      if (last && last.x === x) {
+        last.y = value;
+      } else {
+        linePoints.push({ x, y: value });
+      }
+      const cutoff = x - LINE_WINDOW_MS;
+      linePoints = linePoints.filter((p) => p.x >= cutoff);
+      updateLineChart();
+    }
+
+    function seedLineFromHistory(hist) {
+      linePoints = hist.timestamps.map((t, i) => ({
+        x: formatTimeMs(t),
+        y: hist.cpu_percent_total[i],
+      }));
+      const latest = linePoints[linePoints.length - 1]?.x;
+      if (latest) {
+        linePoints = linePoints.filter((p) => p.x >= latest - LINE_WINDOW_MS);
+      }
+      lineSeeded = true;
+      chartYMax = lineYMaxTarget();
+      updateLineChart();
+    }
+
+    async function refresh() {
+      try {
+        const [cpuRes, histRes] = await Promise.all([
+          fetch("/api/cpu"),
+          fetch("/api/cpu/history"),
+        ]);
+        if (!cpuRes.ok) throw new Error(cpuRes.status === 503 ? "AWAITING TELEMETRY UPLINK…" : cpuRes.statusText);
+        const data = await cpuRes.json();
+        const cpu = data.cpu_percent_total;
+
+        setCounterTargets(cpu, data.cpu_percent_per_core);
+        setAlertMode(cpu);
+        const critical = cpu > ALERT_THRESHOLD;
+
+        datetimeEl.textContent = formatTime(data.datetime);
+        statusLabelEl.textContent = critical
+          ? "⚠ CRITICAL OVERLOAD · TOTAL LOAD"
+          : "SYSTEM NOMINAL · TOTAL LOAD";
+        statusEl.classList.remove("error");
+
+        if (!lineSeeded && histRes.ok) {
+          seedLineFromHistory(await histRes.json());
+        }
+        pushLinePoint(data.datetime, cpu);
+      } catch (e) {
+        statusLabelEl.textContent = "⚠ " + e.message;
+        statusLoadEl.textContent = "";
+        statusEl.classList.add("error");
+      }
+    }
+
+    function startTelemetryLoop() {
+      refresh();
+      setInterval(refresh, REFRESH_MS);
+    }
+
+    async function runHudBoot() {
+      try {
+        await sleep(900);
+        dismissBootOverlay();
+
+        await fadeInTargets();
+        await revealHudPanel(document.querySelector(".panel--line"), 200, REVEAL_SCALE_PANEL);
+        await sleep(60);
+        await revealHudPanel(document.querySelector(".panel--ring"), 200, REVEAL_SCALE_PANEL);
+        await sleep(60);
+
+        const coresPanel = document.getElementById("cores-panel");
+        coresPanel.closest(".cores-section").classList.remove("hud-prepare");
+
+        await waitForCoreCards();
+        await nextFrame();
+        lockCoresPanelHeight();
+
+        await revealHudPanel(coresPanel, 160, REVEAL_SCALE_PANEL);
+        await revealCoreCards();
+
+        const statusBar = document.getElementById("status");
+        statusBar.classList.remove("hud-prepare");
+        statusBar.classList.add("hud-fade-in");
+      } catch (err) {
+        console.error("HUD boot:", err);
+        dismissBootOverlay();
+      } finally {
+        finishBoot();
+      }
+    }
+
+    requestAnimationFrame(tickCounters);
+
+    window.addEventListener("resize", () => refreshChartLayout());
+
+    (async function init() {
+      try {
+        initRingGeometry();
+        applyRingColors(hudColors);
+        createLinePlot();
+        await nextFrame();
+        refreshChartLayout();
+        startTelemetryLoop();
+        await runHudBoot();
+      } catch (err) {
+        console.error("Init:", err);
+        finishBoot();
+        startTelemetryLoop();
+      }
+    })();
+  </script>
+</body>
+</html>
