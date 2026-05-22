@@ -2,7 +2,9 @@
 
 Prueba en clase para practicar **Redis**. Se pidió un tablero de monitoreo en tiempo real de CPU con una ventana de **1 minuto** (los datos en Redis expiran a los 60 segundos).
 
-![Demo de tablero de CPU](loading.gif)
+<p align="center">
+  <img src="loading.gif" alt="Demo de tablero de CPU">
+</p>
 
 ## Qué hace
 
@@ -22,7 +24,9 @@ El punto de entrada es `run.py`, que arranca ambos procesos.
 ## Alerta al superar treshold
 Demostración del estado de alerta. Para exigir el CPU se ocuparon al 100% 15 cores del dispositivo haciendo calculos pesados genéricos.
 
-![Superación del umbral de alerta](loading.gif)
+<p align="center">
+  <img src="alert-mode.gif" alt="Superación del umbral de alerta">
+</p>
 
 ## Requisitos
 
