@@ -8,6 +8,8 @@ REDIS_HOST = "localhost"
 REDIS_PORT = 6379
 REDIS_DB = 0
 CURRENT_KEY = "stats:current"
+ALERT_CHANNEL = "cpu:alert"
+ALERT_THRESHOLD = 50.0
 REFRESH_INTERVAL_SEC = 0.05
 COLLECT_INTERVAL_SEC = REFRESH_INTERVAL_SEC
 
@@ -26,10 +28,32 @@ def get_stats():
     }
 
 
+def alert_payload(stats):
+    cpu = float(stats["cpu_percent_total"])
+    per_core = stats.get("cpu_percent_per_core", [])
+    per_core_high = [float(p) > ALERT_THRESHOLD for p in per_core]
+    return {
+        "alert": cpu > ALERT_THRESHOLD,
+        "cpu_percent_total": cpu,
+        "per_core_high": per_core_high,
+        "datetime": stats["datetime"],
+    }
+
+
+def publish_alert_if_changed(r, stats):
+    payload = alert_payload(stats)
+    key = (payload["alert"], tuple(payload["per_core_high"]))
+    prev = getattr(publish_alert_if_changed, "_prev_key", None)
+    if key != prev:
+        r.publish(ALERT_CHANNEL, json.dumps(payload))
+        publish_alert_if_changed._prev_key = key
+
+
 def save_stats(r, stats):
     payload = json.dumps(stats)
     r.set(f"stats:{stats['datetime']}", payload, ex=60)
     r.set(CURRENT_KEY, payload)
+    publish_alert_if_changed(r, stats)
 
 
 def load_current_stats(r):

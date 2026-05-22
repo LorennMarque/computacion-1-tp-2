@@ -10,7 +10,9 @@ Prueba en clase para practicar **Redis**. Se pidió un tablero de monitoreo en t
 
 - **Colector**: lee el uso de CPU con `psutil` y lo guarda en Redis.
 - **Tablero**: servidor web (Flask) que lee Redis y muestra el estado actual e historial de la última ventana.
-- **Alerta**: si el CPU supera un umbral, el tablero entra en modo alerta. Por defecto está en **50%** (`ALERT_THRESHOLD` en `templates/dashboard.html`); se puede cambiar.
+- **Alerta**: si el CPU supera un umbral, el tablero entra en modo alerta. El umbral por defecto es **50%** (`ALERT_THRESHOLD` en `app/stats.py`). El colector **publica** cambios en el canal Redis `cpu:alert` y el tablero se **suscribe** vía SSE (`/api/alert/subscribe`).
+
+Usamos Pub/Sub para que el tablero reciba el aviso solo cuando cambia el estado de alerta, sin consultar Redis en un loop esperando un valor distinto.
 
 ## Arquitectura
 

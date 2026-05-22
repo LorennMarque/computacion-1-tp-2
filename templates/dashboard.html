@@ -593,7 +593,6 @@
       label: "rgba(255, 150, 160, 0.7)",
       axis: "rgba(255, 140, 150, 0.5)",
     };
-    const ALERT_THRESHOLD = 50;
     const REVEAL_SCALE_PANEL = 1.38;
     const REVEAL_SCALE_CORE = 1.2;
     const REFRESH_MS = 300;
@@ -602,6 +601,7 @@
     let linePoints = [];
     let lineSeeded = false;
     let alertActive = false;
+    let perCoreHigh = [];
     let targetTotal = 0;
     let targetCores = [];
     let displayTotal = 0;
@@ -924,7 +924,7 @@
       const pct = Math.min(100, Math.max(0, value));
       const load = pct / 100;
       el.style.setProperty("--load", load);
-      if (pct > ALERT_THRESHOLD) el.setAttribute("data-load", "high");
+      if (perCoreHigh[i]) el.setAttribute("data-load", "high");
       else el.removeAttribute("data-load");
       el.querySelector(".core-card__value").textContent = pct.toFixed(1) + "%";
     }
@@ -958,13 +958,30 @@
       setLineChartColors(c);
     }
 
-    function setAlertMode(cpu) {
-      const on = cpu > ALERT_THRESHOLD;
+    function setAlertMode(on) {
       document.body.classList.toggle("alert-critical", on);
       const colors = on ? COLOR_ALERT : COLOR_NOMINAL;
       if (on !== alertActive) alertActive = on;
       applyHudColors(colors);
       return on;
+    }
+
+    function applyAlertState(payload) {
+      if (!payload) return;
+      if (payload.per_core_high) perCoreHigh = payload.per_core_high;
+      const on = setAlertMode(!!payload.alert);
+      statusLabelEl.textContent = on
+        ? "⚠ CRITICAL OVERLOAD · TOTAL LOAD"
+        : "SYSTEM NOMINAL · TOTAL LOAD";
+    }
+
+    function startAlertSubscription() {
+      const es = new EventSource("/api/alert/subscribe");
+      es.onmessage = (ev) => {
+        try {
+          applyAlertState(JSON.parse(ev.data));
+        } catch (_) {}
+      };
     }
 
     function formatTime(iso) {
@@ -1038,13 +1055,9 @@
         const cpu = data.cpu_percent_total;
 
         setCounterTargets(cpu, data.cpu_percent_per_core);
-        setAlertMode(cpu);
-        const critical = cpu > ALERT_THRESHOLD;
+        applyAlertState(data);
 
         datetimeEl.textContent = formatTime(data.datetime);
-        statusLabelEl.textContent = critical
-          ? "⚠ CRITICAL OVERLOAD · TOTAL LOAD"
-          : "SYSTEM NOMINAL · TOTAL LOAD";
         statusEl.classList.remove("error");
 
         if (!lineSeeded && histRes.ok) {
@@ -1059,6 +1072,7 @@
     }
 
     function startTelemetryLoop() {
+      startAlertSubscription();
       refresh();
       setInterval(refresh, REFRESH_MS);
     }
