@@ -7,9 +7,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.min.css">
-  <script src="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.iife.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.paths.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
   <style>
     :root {
       --bg-deep: #030810;
@@ -260,10 +259,14 @@
       width: 100%;
       overflow: hidden;
     }
-    #chart-line .uplot {
-      font-family: "Orbitron", monospace;
+    #chart-line {
+      position: relative;
     }
-    #chart-line .u-legend { display: none; }
+    #chart-line canvas {
+      display: block;
+      width: 100% !important;
+      height: 100% !important;
+    }
     #chart-ring {
       display: flex;
       align-items: center;
@@ -548,7 +551,7 @@
     <div class="charts-row">
       <div class="panel panel--line hud-prepare hud-reveal-target">
         <div class="panel__title">◈ Telemetry · CPU Timeline</div>
-        <div id="chart-line"></div>
+        <div id="chart-line"><canvas id="cpu-chart"></canvas></div>
       </div>
       <div class="panel panel--ring hud-prepare hud-reveal-target">
         <div class="panel__title">◈ Power Core</div>
@@ -590,8 +593,7 @@
       label: "rgba(255, 150, 160, 0.7)",
       axis: "rgba(255, 140, 150, 0.5)",
     };
-    const ALERT_THRESHOLD = 70;
-    const CHART_HEIGHT = 300;
+    const ALERT_THRESHOLD = 50;
     const REVEAL_SCALE_PANEL = 1.38;
     const REVEAL_SCALE_CORE = 1.2;
     const REFRESH_MS = 300;
@@ -613,11 +615,8 @@
       new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 
     function refreshChartLayout() {
-      if (!linePlot) return;
-      const el = document.getElementById("chart-line");
-      if (!el) return;
-      const w = el.clientWidth;
-      if (w > 0) linePlot.setSize({ width: w, height: CHART_HEIGHT });
+      if (!cpuChart) return;
+      cpuChart.resize();
     }
 
     function resizeChartsIn(el) {
@@ -698,7 +697,10 @@
       el.style.willChange = "";
       el.classList.remove("hud-revealing");
       activatePanelGlow(el);
-      if (hasChart) fadeInChartContent(el);
+      if (hasChart) {
+        fadeInChartContent(el);
+        requestAnimationFrame(() => refreshChartLayout());
+      }
       resizeChartsIn(el);
     }
 
@@ -754,7 +756,7 @@
     const RING_CIRC = 2 * Math.PI * RING_RADIUS;
     const RING_ARC_LEN = RING_CIRC * RING_ARC_FRAC;
 
-    let linePlot = null;
+    let cpuChart = null;
     let chartYMax = 10;
     let hudColors = COLOR_NOMINAL;
 
@@ -803,70 +805,90 @@
       return out;
     }
 
-    function lineDataFromPoints() {
-      const xs = linePoints.map((p) => p.x / 1000);
+    function lineChartData() {
       const ys = smoothLineYs(linePoints.map((p) => p.y));
-      return [xs, ys];
+      return linePoints.map((p, i) => ({ x: p.x, y: ys[i] }));
     }
 
-    function createLinePlot() {
-      const container = document.getElementById("chart-line");
-      const c = hudColors;
-      const width = Math.max(container.clientWidth, 280);
+    function applyChartScaleColors(c) {
+      if (!cpuChart) return;
+      const { scales } = cpuChart.options;
+      scales.x.ticks.color = c.axis;
+      scales.y.ticks.color = c.axis;
+      scales.y.grid.color = c.dim;
+    }
 
-      const opts = {
-        width,
-        height: CHART_HEIGHT,
-        cursor: { show: true, drag: { x: false, y: false } },
-        scales: {
-          x: {
-            time: true,
-            range: (u, _min, max) => {
-              if (max == null) return [0, 60];
-              return [max - LINE_WINDOW_MS / 1000, max];
+    function createLineChart() {
+      const canvas = document.getElementById("cpu-chart");
+      const c = hudColors;
+
+      cpuChart = new Chart(canvas, {
+        type: "line",
+        data: {
+          datasets: [{
+            label: "CPU %",
+            data: [],
+            borderColor: c.main,
+            backgroundColor: c.dim,
+            borderWidth: 2,
+            fill: true,
+            tension: 0.35,
+            pointRadius: 0,
+            pointHitRadius: 10,
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          interaction: { mode: "index", intersect: false },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: "rgba(4, 18, 38, 0.95)",
+              titleFont: { family: "Orbitron" },
+              bodyFont: { family: "Rajdhani" },
+              callbacks: {
+                label: (ctx) => `CPU: ${ctx.parsed.y.toFixed(1)}%`,
+              },
             },
           },
-          y: {
-            range: () => [0, chartYMax],
+          scales: {
+            x: {
+              type: "time",
+              time: {
+                tooltipFormat: "HH:mm:ss",
+                displayFormats: { second: "HH:mm:ss", minute: "HH:mm:ss" },
+              },
+              ticks: {
+                maxTicksLimit: 6,
+                color: c.axis,
+                font: { family: "Orbitron", size: 10 },
+              },
+              grid: { display: false },
+            },
+            y: {
+              min: 0,
+              suggestedMax: chartYMax,
+              ticks: {
+                color: c.axis,
+                font: { family: "Orbitron", size: 10 },
+                callback: (v) => v + "%",
+              },
+              grid: { color: c.dim },
+            },
           },
         },
-        axes: [
-          {
-            stroke: c.axis,
-            grid: { show: false },
-            ticks: { show: false },
-            font: "10px Orbitron, monospace",
-          },
-          {
-            stroke: c.axis,
-            grid: { stroke: c.dim, width: 1 },
-            ticks: { show: false },
-            font: "10px Orbitron, monospace",
-            values: (u, vals) => vals.map((v) => v.toFixed(0) + "%"),
-          },
-        ],
-        series: [
-          {},
-          {
-            stroke: c.main,
-            width: 2,
-            fill: c.dim,
-            points: { show: false },
-            paths: uPlot.paths.spline(),
-          },
-        ],
-      };
-
-      linePlot = new uPlot(opts, [[], []], container);
+      });
     }
 
-    function setLinePlotColors(c) {
-      if (!linePlot) return;
-      linePlot.setSeries(1, { stroke: c.main, fill: c.dim });
-      linePlot.axes[0].stroke = c.axis;
-      linePlot.axes[1].stroke = c.axis;
-      linePlot.axes[1].grid.stroke = c.dim;
-      linePlot.redraw();
+    function setLineChartColors(c) {
+      if (!cpuChart) return;
+      const ds = cpuChart.data.datasets[0];
+      ds.borderColor = c.main;
+      ds.backgroundColor = c.dim;
+      applyChartScaleColors(c);
+      cpuChart.update("none");
     }
 
     const datetimeEl = document.getElementById("datetime");
@@ -933,16 +955,15 @@
     function applyHudColors(c) {
       hudColors = c;
       applyRingColors(c);
-      setLinePlotColors(c);
+      setLineChartColors(c);
     }
 
     function setAlertMode(cpu) {
       const on = cpu > ALERT_THRESHOLD;
       document.body.classList.toggle("alert-critical", on);
-      if (on !== alertActive) {
-        alertActive = on;
-        applyHudColors(on ? COLOR_ALERT : COLOR_NOMINAL);
-      }
+      const colors = on ? COLOR_ALERT : COLOR_NOMINAL;
+      if (on !== alertActive) alertActive = on;
+      applyHudColors(colors);
       return on;
     }
 
@@ -964,9 +985,19 @@
     }
 
     function updateLineChart() {
-      if (!linePlot || !linePoints.length) return;
+      if (!cpuChart || !linePoints.length) return;
       chartYMax = smoothStep(chartYMax, lineYMaxTarget(), REFRESH_MS);
-      linePlot.setData(lineDataFromPoints());
+      const latest = linePoints[linePoints.length - 1].x;
+      const colors = alertActive ? COLOR_ALERT : COLOR_NOMINAL;
+
+      cpuChart.data.datasets[0].data = lineChartData();
+      cpuChart.data.datasets[0].borderColor = colors.main;
+      cpuChart.data.datasets[0].backgroundColor = colors.dim;
+      cpuChart.options.scales.x.min = latest - LINE_WINDOW_MS;
+      cpuChart.options.scales.x.max = latest;
+      cpuChart.options.scales.y.suggestedMax = chartYMax;
+      applyChartScaleColors(colors);
+      cpuChart.update("none");
     }
 
     function pushLinePoint(datetime, value) {
@@ -1072,14 +1103,19 @@
       try {
         initRingGeometry();
         applyRingColors(hudColors);
-        createLinePlot();
-        await nextFrame();
-        refreshChartLayout();
         startTelemetryLoop();
         await runHudBoot();
+        createLineChart();
+        await nextFrame();
+        refreshChartLayout();
+        if (linePoints.length) updateLineChart();
       } catch (err) {
         console.error("Init:", err);
         finishBoot();
+        if (!cpuChart) {
+          createLineChart();
+          if (linePoints.length) updateLineChart();
+        }
         startTelemetryLoop();
       }
     })();
